@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>めまいトラッカー | Vertigo Tracker</title>
+<link rel="manifest" href="vertigo-manifest.json">
+<meta name="theme-color" content="#2d1b69">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="めまいTrack">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="description" content="めまい発作の記録・経過観察ツール（記録専用）">
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-serif;
+  background: #f0eef7;
+  color: #2d3748;
+  min-height: 100vh;
+}
+header {
+  position: relative; overflow: hidden;
+  background: linear-gradient(135deg, #1a0540, #2d1b69, #4a2d9e);
+  color: white; padding: 14px 24px;
+  display: flex; align-items: center; gap: 16px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  min-height: 72px;
+}
+#wave-canvas {
+  position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0.7;
+}
+header > div { position: relative; z-index: 1; }
+header h1 { font-size: 1.35rem; font-weight: 900; }
+header p  { font-size: 0.78rem; opacity: 0.8; margin-top: 2px; }
+.badge {
+  background: rgba(255,255,255,0.2); padding: 4px 10px;
+  border-radius: 20px; font-size: 0.75rem; font-weight: 600; margin-left: auto; position: relative; z-index: 1;
+}
+.container {
+  display: grid; grid-template-columns: 360px 1fr;
+  gap: 14px; padding: 14px; max-width: 1400px; margin: 0 auto;
+}
+
+/* ===== Mobile ===== */
+@media (max-width: 900px) {
+  .container { grid-template-columns: 1fr; gap: 0; padding: 8px 8px 72px; }
+  #left-panel.mob-hidden, .right-panel.mob-hidden { display: none !important; }
+  .mobile-nav { display: flex !important; }
+}
+.mobile-nav {
+  display: none; position: fixed; bottom: 0; left: 0; right: 0;
+  height: 60px; background: white; border-top: 1px solid #e2e8f0;
+  box-shadow: 0 -4px 16px rgba(0,0,0,0.1); z-index: 1000;
+}
+.mob-nav-btn {
+  flex: 1; border: none; background: transparent; font-family: inherit;
+  font-size: 0.78rem; font-weight: 600; color: #a0aec0; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  transition: color 0.15s; padding-bottom: env(safe-area-inset-bottom);
+}
+.mob-nav-btn.active { color: #6b46c1; }
+.mob-nav-btn span.icon { font-size: 1.5rem; line-height: 1; }
+.mob-nav-btn span.label { font-size: 0.7rem; }
+
+.panel {
+  background: white; border-radius: 12px; padding: 18px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.08);
+}
+.right-panel { min-width: 0; display: flex; flex-direction: column; gap: 0; }
+.right-panel > .panel { flex: 1; }
+
+.section-title {
+  font-size: 0.72rem; font-weight: 800; letter-spacing: .06em;
+  color: #6b46c1; text-transform: uppercase; margin-bottom: 10px; margin-top: 4px;
+}
+.divider { border: none; border-top: 1px solid #e2e8f0; margin: 14px 0; }
+
+/* Type buttons */
+.type-grid  { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; margin-bottom: 10px; }
+.type-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-bottom: 10px; }
+.type-btn {
+  border: 2px solid #e2e8f0; border-radius: 10px; padding: 9px 6px;
+  cursor: pointer; background: white; font-size: 0.78rem; font-weight: 600;
+  color: #4a5568; font-family: inherit; text-align: center; transition: all .15s; line-height: 1.3;
+}
+.type-btn:hover { border-color: #9f7aea; color: #6b46c1; }
+.type-btn.active { background: linear-gradient(135deg, #553c9a, #6b46c1); color: white; border-color: transparent; }
+.type-btn small { display: block; font-size: 0.65rem; opacity: 0.8; margin-top: 1px; }
+
+/* Symptom checkboxes */
+.sym-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; margin-bottom: 10px; }
+.sym-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 9px; border-radius: 8px; border: 1.5px solid #e2e8f0;
+  cursor: pointer; font-size: 0.78rem; color: #4a5568; transition: all .15s;
+}
+.sym-item input { accent-color: #6b46c1; width: 15px; height: 15px; flex-shrink: 0; }
+.sym-item.checked { border-color: #9f7aea; background: #faf5ff; color: #6b46c1; font-weight: 600; }
+
+/* Sliders */
+.slider-group { margin-bottom: 14px; }
+.slider-label {
+  display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;
+  font-size: 0.78rem; font-weight: 700; color: #4a5568;
+}
+.slider-value { font-size: 1.4rem; font-weight: 800; color: #6b46c1; }
+.slider-unit  { font-size: 0.8rem; font-weight: 400; color: #a0aec0; }
+input[type="range"] { width: 100%; accent-color: #6b46c1; cursor: pointer; height: 20px; }
+.nrs-value { font-size: 2.4rem; font-weight: 900; text-align: center; margin: 6px 0 4px; transition: color 0.3s; }
+.nrs-ticks { display: flex; justify-content: space-between; font-size: 0.65rem; color: #a0aec0; }
+
+/* Duration selector */
+.dur-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
+.dur-btn {
+  border: 2px solid #e2e8f0; border-radius: 9px; padding: 9px 4px;
+  cursor: pointer; background: white; font-size: 0.72rem; font-weight: 700;
+  color: #4a5568; font-family: inherit; text-align: center; transition: all .15s; line-height: 1.4;
+}
+.dur-btn:hover { border-color: #9f7aea; color: #6b46c1; }
+.dur-btn.active { background: linear-gradient(135deg, #553c9a, #6b46c1); color: white; border-color: transparent; }
+
+/* Save btn */
+.btn-save {
+  width: 100%; padding: 14px; margin-top: 10px;
+  background: linear-gradient(135deg, #553c9a, #6b46c1);
+  color: white; border: none; border-radius: 12px;
+  font-size: 1rem; font-weight: 800; cursor: pointer; font-family: inherit;
+  transition: opacity .2s; box-shadow: 0 4px 14px rgba(107,70,193,0.35);
+}
+.btn-save:hover { opacity: .9; }
+.btn-save.saved { background: #48bb78; }
+
+/* Tabs */
+.tab-nav { display: flex; gap: 4px; margin-bottom: 14px; flex-wrap: wrap; }
+.tab-btn {
+  flex: 1; padding: 9px 4px; border: none; border-radius: 9px;
+  background: #f7fafc; font-size: 0.77rem; font-weight: 700; color: #718096;
+  cursor: pointer; font-family: inherit; white-space: nowrap; transition: all .15s; min-width: 60px;
+}
+.tab-btn.active { background: #6b46c1; color: white; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* Chart */
+#timeline-chart, #freq-chart { height: 340px; }
+.empty-chart {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 300px; color: #a0aec0; gap: 8px;
+}
+.empty-chart .icon { font-size: 2.8rem; }
+
+/* History table */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+th { padding: 9px 10px; text-align: left; font-weight: 700; color: #4a5568; border-bottom: 2px solid #e2e8f0; background: #f7fafc; white-space: nowrap; }
+td { padding: 7px 10px; border-bottom: 1px solid #f0f4f8; vertical-align: middle; }
+tr:hover td { background: #faf5ff; }
+.nrs-badge { display: inline-block; padding: 2px 9px; border-radius: 20px; color: white; font-weight: 800; font-size: 0.8rem; }
+.type-badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: 700; }
+.export-row { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.btn-export { padding: 7px 14px; border: none; border-radius: 8px; font-size: 0.8rem; font-weight: 700; cursor: pointer; font-family: inherit; }
+.btn-csv  { background: #48bb78; color: white; }
+.btn-json { background: #4299e1; color: white; }
+.btn-clear { background: #fc8181; color: white; }
+.btn-del  { background: #fed7d7; color: #c53030; border: none; border-radius: 6px; padding: 3px 8px; font-size: 0.72rem; cursor: pointer; font-family: inherit; }
+.record-count { font-size: 0.78rem; color: #a0aec0; margin-left: auto; }
+
+/* Summary cards */
+.summary-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+@media (max-width: 700px) { .summary-cards { grid-template-columns: repeat(2, 1fr); } }
+.summary-card { background: white; border-radius: 12px; padding: 14px 16px; text-align: center; border: 1.5px solid #e9d8fd; }
+.summary-card .num { font-size: 1.9rem; font-weight: 900; color: #6b46c1; }
+.summary-card .lbl { font-size: 0.72rem; color: #718096; font-weight: 600; margin-top: 2px; }
+
+/* Form */
+.form-group { margin-bottom: 12px; }
+.form-group label { display: block; font-size: 0.78rem; font-weight: 700; color: #4a5568; margin-bottom: 4px; }
+.form-group input[type="text"], .form-group textarea, .form-group input[type="datetime-local"] {
+  width: 100%; padding: 9px 11px; border: 1.5px solid #e2e8f0; border-radius: 9px;
+  font-family: inherit; font-size: 0.85rem; color: #2d3748;
+}
+.form-group textarea { min-height: 64px; resize: vertical; }
+
+/* Demo banner */
+#demo-banner {
+  background: #f3e8ff; border: 1.5px solid #d6bcfa; border-radius: 10px;
+  padding: 11px 16px; margin-bottom: 14px;
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+}
+
+/* Disclaimer */
+#disclaimer-modal {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  z-index: 9999; align-items: center; justify-content: center; padding: 20px;
+}
+
+/* Print */
+@media print {
+  header { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .tab-nav, .mobile-nav, .export-row, .btn-save { display: none !important; }
+  .tab-content { display: block !important; }
+  .panel { box-shadow: none; border: 1px solid #e2e8f0; }
+}
+</style>
+</head>
+<body>
+
+<!-- Disclaimer Modal -->
+<div id="disclaimer-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; align-items:center; justify-content:center; padding:20px;">
+  <div style="background:white; border-radius:16px; padding:28px 24px; max-width:480px; width:100%; box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+    <div style="font-size:1.2rem; font-weight:800; color:#2d1b69; margin-bottom:12px;">&#x26A0;&#xFE0F; ご利用前にお読みください</div>
+    <div style="font-size:0.85rem; color:#4a5568; line-height:1.8; margin-bottom:20px;">
+      <p>本アプリ「めまいトラッカー」は、<strong>めまい発作の状態を自己記録するための補助ツール</strong>です。</p>
+      <ul style="padding-left:16px; margin-top:10px;">
+        <li>医療診断・治療を行うものではありません</li>
+        <li>医師の判断に代わるものではありません</li>
+        <li>全てのデータはお使いのデバイスにのみ保存されます</li>
+        <li>症状が気になる場合は医療機関を受診してください</li>
+      </ul>
+    </div>
+    <label style="display:flex; align-items:center; gap:10px; font-size:0.85rem; color:#2d3748; margin-bottom:16px; cursor:pointer;">
+      <input type="checkbox" id="disclaimer-check" style="width:18px; height:18px; accent-color:#6b46c1;"> 上記を理解し、記録ツールとして利用することに同意します
+    </label>
+    <button id="disclaimer-ok" onclick="acceptDisclaimer()" disabled
+      style="width:100%; padding:13px; background:#6b46c1; color:white; border:none; border-radius:10px; font-size:1rem; font-weight:700; cursor:pointer; opacity:0.4; font-family:inherit; transition:opacity 0.2s;">
+      同意して始める
+    </button>
+    <div style="font-size:0.72rem; color:#a0aec0; text-align:center; margin-top:10px;">Vertigo Tracker v1.0 — 記録専用ツール</div>
+  </div>
+</div>
+
+<header>
+  <canvas id="wave-canvas"></canvas>
+  <div>
+    <h1>めまいトラッカー</h1>
+    <p>めまい発作を記録し、医療者と共有する</p>
+  </div>
+  <div class="badge">Vertigo Tracker v1.0</div>
+</header>
+
+<script>
+(function(){
+  var cv=document.getElementById('wave-canvas'), ctx=cv.getContext('2d'), t=0;
+  function resize(){
+    cv.width=cv.offsetWidth*(window.devicePixelRatio||1);
+    cv.height=cv.offsetHeight*(window.devicePixelRatio||1);
+    ctx.scale(window.devicePixelRatio||1,window.devicePixelRatio||1);
+  }
+  window.addEventListener('resize',resize); resize();
+  var stops=[{z:-1,r:80,g:0,b:180},{z:-0.5,r:120,g:40,b:220},{z:0,r:100,g:80,b:255},{z:0.5,r:180,g:120,b:255},{z:1,r:220,g:180,b:255}];
+  function zColor(z){
+    for(var i=0;i<stops.length-1;i++){
+      if(z<=stops[i+1].z){var s=stops[i],e=stops[i+1],f=(z-s.z)/(e.z-s.z);
+        return[Math.round(s.r+(e.r-s.r)*f),Math.round(s.g+(e.g-s.g)*f),Math.round(s.b+(e.b-s.b)*f)];}
+    }
+    var l=stops[stops.length-1]; return[l.r,l.g,l.b];
+  }
+  function draw(){
+    var W=cv.offsetWidth,H=cv.offsetHeight; ctx.clearRect(0,0,W,H);
+    var cols=60,rows=18,grid=[];
+    for(var r=0;r<=rows;r++){grid[r]=[];for(var c=0;c<=cols;c++){
+      var u=c/cols,v=r/rows,x=(u-0.5)*4,y=(v-0.5)*4;
+      grid[r][c]=Math.sin(x*1.5-t*1.2)*Math.cos(y*1.5+t*0.7)*0.7+Math.sin(Math.sqrt(x*x+y*y)*1.8-t*0.9)*0.3;
+    }}
+    function proj(c,r,z){
+      return{x:W*0.05+c/cols*W*0.85+r/rows*(W*0.06),y:H*0.15+r/rows*H*0.55-z*H*0.28+c/cols*(H*0.06)};
+    }
+    for(var r=rows-1;r>=0;r--){for(var c=0;c<cols;c++){
+      var z00=grid[r][c],z10=grid[r][c+1],z01=grid[r+1][c],z11=grid[r+1][c+1];
+      var zAvg=(z00+z10+z01+z11)/4,rc=zColor(Math.max(-1,Math.min(1,zAvg)));
+      var p00=proj(c,r,z00),p10=proj(c+1,r,z10),p01=proj(c,r+1,z01),p11=proj(c+1,r+1,z11);
+      ctx.beginPath(); ctx.moveTo(p00.x,p00.y); ctx.lineTo(p10.x,p10.y); ctx.lineTo(p11.x,p11.y); ctx.lineTo(p01.x,p01.y); ctx.closePath();
+      ctx.fillStyle='rgba('+rc[0]+','+rc[1]+','+rc[2]+',0.85)'; ctx.fill();
+      ctx.strokeStyle='rgba(0,0,0,0.08)'; ctx.lineWidth=0.4; ctx.stroke();
+    }}
+    t+=0.022; requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+
+<div class="container">
+
+  <!-- ===== LEFT PANEL ===== -->
+  <div class="panel" id="left-panel">
+
+    <div class="section-title">患者情報</div>
+    <div class="form-group">
+      <input type="text" id="patientId" placeholder="患者ID / 氏名（任意）">
+    </div>
+
+    <div class="section-title">めまいの種類</div>
+    <div class="type-grid">
+      <button class="type-btn active" id="type-rotational" onclick="setVertigoType('rotational',this)">
+        🌀 回転性<small>部屋が回る感じ</small>
+      </button>
+      <button class="type-btn" id="type-floating" onclick="setVertigoType('floating',this)">
+        🌊 浮動性<small>ふわふわ・揺れる</small>
+      </button>
+      <button class="type-btn" id="type-presyncope" onclick="setVertigoType('presyncope',this)">
+        ⚡ 眼前暗黒感<small>立ちくらみ・気が遠い</small>
+      </button>
+      <button class="type-btn" id="type-oscillopsia" onclick="setVertigoType('oscillopsia',this)">
+        👁️ 動揺視<small>歩くと視界が揺れる</small>
+      </button>
+    </div>
+
+    <div class="section-title">発作の持続時間</div>
+    <div class="dur-grid">
+      <button class="dur-btn active" onclick="setDuration('sec', this)">秒単位<br><small>&lt;1分</small></button>
+      <button class="dur-btn" onclick="setDuration('min', this)">数分<br><small>1〜10分</small></button>
+      <button class="dur-btn" onclick="setDuration('hour', this)">数十分<br><small>10分〜1時間</small></button>
+      <button class="dur-btn" onclick="setDuration('long', this)">数時間〜<br><small>&gt;1時間</small></button>
+    </div>
+
+    <div class="section-title">誘因・きっかけ</div>
+    <div class="type-grid-3">
+      <button class="type-btn" onclick="setTrigger('position', this)">頭位変換<small>寝返り・起き上がり</small></button>
+      <button class="type-btn" onclick="setTrigger('standing', this)">起立時<small>立ち上がり</small></button>
+      <button class="type-btn" onclick="setTrigger('spontaneous', this)">自発性<small>きっかけなし</small></button>
+      <button class="type-btn" onclick="setTrigger('exertion', this)">動作時<small>歩行・運動</small></button>
+      <button class="type-btn" onclick="setTrigger('stress', this)">ストレス<small>過労・精神的</small></button>
+      <button class="type-btn" onclick="setTrigger('unknown', this)">不明<small>わからない</small></button>
+    </div>
+
+    <div class="section-title">随伴症状（複数選択可）</div>
+    <div class="sym-grid" id="sym-grid">
+      <label class="sym-item" onclick="toggleSym(this)">
+        <input type="checkbox" value="tinnitus"> 耳鳴り
+      </label>
+      <label class="sym-item" onclick="toggleSym(this)">
+        <input type="checkbox" value="hearing"> 難聴・耳閉感
+      </label>
+      <label class="sym-item" onclick="toggleSym(this)">
+        <input type="checkbox" value="nausea"> 吐き気・嘔吐
+      </label>
+      <label class="sym-item" onclick="toggleSym(this)">
+        <input type="checkbox" value="headache"> 頭痛
+      </label>
+      <label class="sym-item" onclick="toggleSym(this)">
+        <input type="checkbox" value="vision"> 視覚異常・複視
+      </label>
+      <label class="sym-item" onclick="toggleSym(this)">
+        <input type="checkbox" value="sweat"> 発汗・動悸
+      </label>
+    </div>
+
+    <hr class="divider">
+    <div class="section-title">今日の発作記録</div>
+
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>つらさ（NRS）</span>
+      </div>
+      <input type="range" id="nrsSlider" min="0" max="10" value="5" step="1" oninput="onNrsChange(this.value)" style="accent-color:#6b46c1;">
+      <div class="nrs-value" id="nrsVal">5</div>
+      <div class="nrs-ticks">
+        <span>0<br>なし</span>
+        <span style="text-align:center">5<br>中程度</span>
+        <span style="text-align:right">10<br>最大</span>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-top:12px;">
+      <label>記録日時</label>
+      <input type="datetime-local" id="recordDate">
+    </div>
+
+    <div class="form-group">
+      <label>メモ（状況・環境・特記事項）</label>
+      <textarea id="noteInput" placeholder="例：朝、寝返りで発症。5分で改善。前日に飲酒あり。"></textarea>
+    </div>
+
+    <button class="btn-save" id="saveBtn" onclick="saveRecord()">発作を記録する</button>
+  </div>
+
+  <!-- ===== RIGHT PANEL ===== -->
+  <div class="right-panel">
+    <div class="panel">
+      <div class="tab-nav">
+        <button class="tab-btn active" data-tab="timeline" onclick="showTab('timeline')">📈 時系列</button>
+        <button class="tab-btn" data-tab="frequency" onclick="showTab('frequency')">📊 頻度</button>
+        <button class="tab-btn" data-tab="report" onclick="showTab('report')">📋 レポート</button>
+        <button class="tab-btn" data-tab="history" onclick="showTab('history')">🗒️ 記録履歴</button>
+      </div>
+
+      <!-- Timeline tab -->
+      <div id="tab-timeline" class="tab-content active">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <div class="section-title" style="margin-bottom:0;">発作の時系列</div>
+          <div style="font-size:0.72rem; color:#a0aec0;">X: 日付 | Y: つらさ(NRS) | 色: 種類 | 大きさ: 持続時間</div>
+        </div>
+        <div id="timeline-chart">
+          <div class="empty-chart"><div class="icon">📈</div><div>記録がまだありません</div></div>
+        </div>
+      </div>
+
+      <!-- Frequency tab -->
+      <div id="tab-frequency" class="tab-content">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <div class="section-title" style="margin-bottom:0;">発作頻度・パターン</div>
+        </div>
+        <div id="freq-chart">
+          <div class="empty-chart"><div class="icon">📊</div><div>記録がまだありません</div></div>
+        </div>
+      </div>
+
+      <!-- Report tab -->
+      <div id="tab-report" class="tab-content">
+        <!-- Demo banner -->
+        <div id="demo-banner">
+          <div>
+            <div style="font-size:0.82rem;font-weight:700;color:#553c9a;">プレゼン用サンプルデータ</div>
+            <div style="font-size:0.75rem;color:#805ad5;margin-top:2px;">治療前→リハビリ→改善の経過例を一括読み込み</div>
+          </div>
+          <button id="demo-btn" onclick="loadDemoData()" style="flex-shrink:0;padding:8px 18px;background:#6b46c1;color:white;border:none;border-radius:8px;cursor:pointer;font-size:0.82rem;font-weight:700;font-family:inherit;white-space:nowrap;">サンプルを読み込む</button>
+        </div>
+
+        <div id="report-summary" class="summary-cards"></div>
+
+        <div style="margin-top:8px;">
+          <div class="section-title">誘因分析</div>
+          <div id="trigger-chart" style="height:200px;"></div>
+        </div>
+        <div style="margin-top:8px;">
+          <div class="section-title">随伴症状の出現頻度</div>
+          <div id="sym-chart" style="height:200px;"></div>
+        </div>
+        <div style="margin-top:12px; text-align:right;">
+          <button class="btn-export btn-print" onclick="window.print()" style="padding:6px 14px;font-size:0.78rem;border-radius:7px;background:#a0aec0;color:white;border:none;cursor:pointer;font-family:inherit;">印刷 / PDF</button>
+        </div>
+      </div>
+
+      <!-- History tab -->
+      <div id="tab-history" class="tab-content">
+        <div class="export-row">
+          <button class="btn-export btn-csv" onclick="exportCSV()">CSV出力</button>
+          <button class="btn-export btn-json" onclick="exportJSON()">JSON共有</button>
+          <button class="btn-export btn-clear" onclick="clearAll()">全削除</button>
+          <span class="record-count" id="recordCount">0 件</span>
+        </div>
+        <div class="table-wrap" id="historyTable">
+          <div style="text-align:center;padding:30px;color:#a0aec0;font-size:.88rem;">記録がありません</div>
+        </div>
+      </div>
+
+    </div><!-- /.panel -->
+  </div><!-- /.right-panel -->
+
+</div><!-- /.container -->
+
+<!-- Mobile bottom nav -->
+<div class="mobile-nav" id="mobile-nav">
+  <button class="mob-nav-btn" id="mnav-left" onclick="showMobilePanel('left')">
+    <span class="icon">⚙️</span><span class="label">入力</span>
+  </button>
+  <button class="mob-nav-btn active" id="mnav-right" onclick="showMobilePanel('right')">
+    <span class="icon">📊</span><span class="label">結果</span>
+  </button>
+</div>
+
+<script>
+// ============================================================
+//  State
+// ============================================================
+let currentType     = 'rotational';
+let currentDuration = 'sec';
+let currentTrigger  = null;
+
+const TYPE_LABELS = {
+  rotational:  '🌀 回転性',
+  floating:    '🌊 浮動性',
+  presyncope:  '⚡ 眼前暗黒感',
+  oscillopsia: '👁️ 動揺視'
+};
+const TYPE_COLORS = {
+  rotational:  '#6b46c1',
+  floating:    '#3182ce',
+  presyncope:  '#e53e3e',
+  oscillopsia: '#38a169'
+};
+const DUR_LABELS  = { sec: '秒単位', min: '数分', hour: '数十分', long: '数時間〜' };
+const DUR_MINUTES = { sec: 0.5, min: 5, hour: 30, long: 180 };
+const TRIG_LABELS = {
+  position: '頭位変換', standing: '起立時', spontaneous: '自発性',
+  exertion: '動作時', stress: 'ストレス', unknown: '不明'
+};
+
+function setVertigoType(type, btn) {
+  currentType = type;
+  document.querySelectorAll('[id^="type-"]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function setDuration(dur, btn) {
+  currentDuration = dur;
+  document.querySelectorAll('.dur-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function setTrigger(trig, btn) {
+  if (currentTrigger === trig) {
+    currentTrigger = null; btn.classList.remove('active'); return;
+  }
+  currentTrigger = trig;
+  document.querySelectorAll('.type-grid-3 .type-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function toggleSym(label) {
+  label.classList.toggle('checked', label.querySelector('input').checked);
+}
+function getSymptoms() {
+  return [...document.querySelectorAll('.sym-item input:checked')].map(i => i.value);
+}
+
+function onNrsChange(val) {
+  const n = parseInt(val);
+  const el = document.getElementById('nrsVal');
+  el.textContent = n;
+  const t = n / 10;
+  el.style.color = `rgb(${Math.round(107 + 139*t)},${Math.round(70 - 70*t)},${Math.round(193 - 193*t)})`;
+}
+function nrsToColor(n) {
+  const t = n/10;
+  return `rgb(${Math.round(107+139*t)},${Math.round(70-70*t)},${Math.round(193-193*t)})`;
+}
+
+// ============================================================
+//  Data layer
+// ============================================================
+const STORAGE_KEY = 'vertigo_v1';
+function loadRecords() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]'); } catch{return[];} }
+function saveRecords(r) { localStorage.setItem(STORAGE_KEY, JSON.stringify(r)); }
+
+function saveRecord() {
+  const date = document.getElementById('recordDate').value;
+  if (!date) { alert('記録日時を選択してください'); return; }
+  const rec = {
+    id: Date.now(),
+    patientId: document.getElementById('patientId').value.trim(),
+    date,
+    type: currentType,
+    duration: currentDuration,
+    durationMin: DUR_MINUTES[currentDuration],
+    trigger: currentTrigger,
+    symptoms: getSymptoms(),
+    nrs: parseInt(document.getElementById('nrsSlider').value),
+    note: document.getElementById('noteInput').value.trim()
+  };
+  const rs = loadRecords(); rs.push(rec); saveRecords(rs);
+  document.getElementById('noteInput').value = '';
+  document.querySelectorAll('.sym-item input').forEach(i => i.checked = false);
+  document.querySelectorAll('.sym-item').forEach(i => i.classList.remove('checked'));
+  const btn = document.getElementById('saveBtn');
+  btn.textContent = '保存しました！'; btn.classList.add('saved');
+  setTimeout(()=>{ btn.textContent='発作を記録する'; btn.classList.remove('saved'); }, 1600);
+  renderAll();
+}
+function deleteRecord(id) {
+  if (!confirm('この記録を削除しますか？')) return;
+  saveRecords(loadRecords().filter(r=>r.id!==id)); renderAll();
+}
+function clearAll() {
+  if (!confirm('全ての記録を削除しますか？')) return;
+  localStorage.removeItem(STORAGE_KEY); renderAll();
+}
+
+// ============================================================
+//  Tabs
+// ============================================================
+function showTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===name));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.toggle('active', c.id==='tab-'+name));
+  const rs = loadRecords();
+  if (name === 'timeline')  renderTimeline(rs);
+  if (name === 'frequency') renderFrequency(rs);
+  if (name === 'report')    renderReport(rs);
+  if (name === 'history')   renderTable(rs);
+}
+
+// ============================================================
+//  Timeline chart
+// ============================================================
+function renderTimeline(records) {
+  const el = document.getElementById('timeline-chart');
+  if (!records.length) {
+    el.innerHTML='<div class="empty-chart"><div class="icon">📈</div><div>記録がまだありません</div></div>'; return;
+  }
+  el.innerHTML = '';
+  const types = [...new Set(records.map(r=>r.type))];
+  const traces = types.map(type => {
+    const rs = records.filter(r=>r.type===type);
+    return {
+      type:'scatter', mode:'markers', name: TYPE_LABELS[type]||type,
+      x: rs.map(r=>r.date), y: rs.map(r=>r.nrs),
+      marker:{
+        size: rs.map(r=>(DUR_MINUTES[r.duration]||1)*0.15 + 10),
+        color: TYPE_COLORS[type]||'#6b46c1', opacity: 0.8,
+        line:{width:1.5, color:'white'}
+      },
+      hovertemplate: rs.map(r=>`<b>${r.date.replace('T',' ')}</b><br>種別: ${TYPE_LABELS[r.type]||r.type}<br>NRS: ${r.nrs}<br>持続: ${DUR_LABELS[r.duration]||r.duration}<br>誘因: ${TRIG_LABELS[r.trigger]||'不明'}<br>随伴: ${(r.symptoms||[]).join(' / ')||'なし'}<br>${r.note||''}<extra></extra>`),
+    };
+  });
+  Plotly.newPlot(el, traces, {
+    xaxis:{ title:'日付', type:'date' },
+    yaxis:{ title:'つらさ (NRS)', range:[-0.5, 10.5], dtick:1 },
+    margin:{l:40,r:20,t:20,b:50},
+    paper_bgcolor:'#f9f5ff', plot_bgcolor:'#f9f5ff',
+    legend:{orientation:'h', y:1.1, x:0},
+    font:{family:'Helvetica Neue, Arial, sans-serif'},
+    hovermode:'closest',
+  }, {responsive:true});
+}
+
+// ============================================================
+//  Frequency chart
+// ============================================================
+function renderFrequency(records) {
+  const el = document.getElementById('freq-chart');
+  if (!records.length) {
+    el.innerHTML='<div class="empty-chart"><div class="icon">📊</div><div>記録がまだありません</div></div>'; return;
+  }
+  el.innerHTML = '';
+  // Group by week
+  const weeks = {};
+  records.forEach(r => {
+    const d = new Date(r.date);
+    const mon = new Date(d); mon.setDate(d.getDate() - d.getDay() + 1);
+    const key = mon.toISOString().slice(0,10);
+    if (!weeks[key]) weeks[key] = 0;
+    weeks[key]++;
+  });
+  const wKeys = Object.keys(weeks).sort();
+  const trace = {
+    type:'bar', x:wKeys, y:wKeys.map(k=>weeks[k]),
+    name:'発作回数',
+    marker:{ color: wKeys.map(k=>weeks[k]), colorscale:[[0,'#e9d8fd'],[1,'#6b46c1']], showscale:false },
+    hovertemplate:'%{x}<br>発作: %{y} 回<extra></extra>'
+  };
+  Plotly.newPlot(el, [trace], {
+    xaxis:{ title:'週開始日' },
+    yaxis:{ title:'発作回数', dtick:1 },
+    margin:{l:40,r:20,t:20,b:60},
+    paper_bgcolor:'#f9f5ff', plot_bgcolor:'#f9f5ff',
+    font:{family:'Helvetica Neue, Arial, sans-serif'},
+  }, {responsive:true});
+}
+
+// ============================================================
+//  Report
+// ============================================================
+function renderReport(records) {
+  if (!records.length) {
+    document.getElementById('report-summary').innerHTML='<div style="color:#a0aec0; text-align:center; padding:20px;">記録がありません</div>';
+    return;
+  }
+  // Summary cards
+  const total = records.length;
+  const avgNrs = (records.reduce((a,r)=>a+r.nrs,0)/total).toFixed(1);
+  const maxNrs = Math.max(...records.map(r=>r.nrs));
+  // Episodes in last 30 days
+  const now = new Date(), d30 = new Date(now.getTime()-30*864e5);
+  const recent = records.filter(r=>new Date(r.date)>=d30).length;
+  document.getElementById('report-summary').innerHTML = `
+    <div class="summary-card"><div class="num">${total}</div><div class="lbl">総発作回数</div></div>
+    <div class="summary-card"><div class="num">${recent}</div><div class="lbl">直近30日</div></div>
+    <div class="summary-card"><div class="num">${avgNrs}</div><div class="lbl">平均NRS</div></div>
+    <div class="summary-card"><div class="num">${maxNrs}</div><div class="lbl">最大NRS</div></div>
+  `;
+  // Trigger chart
+  const tCount = {};
+  records.forEach(r=>{ const t=r.trigger||'unknown'; tCount[t]=(tCount[t]||0)+1; });
+  const tEl = document.getElementById('trigger-chart'); tEl.innerHTML='';
+  Plotly.newPlot(tEl,[{
+    type:'bar', orientation:'h',
+    x:Object.values(tCount), y:Object.keys(tCount).map(k=>TRIG_LABELS[k]||k),
+    marker:{color:'#9f7aea'},
+    hovertemplate:'%{y}: %{x}件<extra></extra>'
+  }],{margin:{l:90,r:20,t:10,b:30},paper_bgcolor:'transparent',plot_bgcolor:'transparent',font:{family:'Helvetica Neue'}},{responsive:true});
+
+  // Symptom chart
+  const sCount = {};
+  const SYM_LABELS = {tinnitus:'耳鳴り',hearing:'難聴・耳閉感',nausea:'吐き気',headache:'頭痛',vision:'視覚異常',sweat:'発汗・動悸'};
+  records.forEach(r=>(r.symptoms||[]).forEach(s=>{ sCount[s]=(sCount[s]||0)+1; }));
+  const sEl = document.getElementById('sym-chart'); sEl.innerHTML='';
+  if (Object.keys(sCount).length) {
+    Plotly.newPlot(sEl,[{
+      type:'bar', orientation:'h',
+      x:Object.values(sCount), y:Object.keys(sCount).map(k=>SYM_LABELS[k]||k),
+      marker:{color:'#b794f4'},
+      hovertemplate:'%{y}: %{x}件<extra></extra>'
+    }],{margin:{l:100,r:20,t:10,b:30},paper_bgcolor:'transparent',plot_bgcolor:'transparent',font:{family:'Helvetica Neue'}},{responsive:true});
+  } else {
+    sEl.innerHTML='<div style="color:#a0aec0;text-align:center;padding:20px;">随伴症状の記録なし</div>';
+  }
+}
+
+// ============================================================
+//  History table
+// ============================================================
+function renderTable(records) {
+  document.getElementById('recordCount').textContent=`${records.length} 件`;
+  const el = document.getElementById('historyTable');
+  if (!records.length) { el.innerHTML='<div style="text-align:center;padding:30px;color:#a0aec0;font-size:.88rem;">記録がありません</div>'; return; }
+  const sorted=[...records].sort((a,b)=>new Date(b.date)-new Date(a.date));
+  el.innerHTML=`<table>
+    <thead><tr><th>日時</th><th>種別</th><th>持続</th><th>誘因</th><th>随伴症状</th><th>NRS</th><th>メモ</th><th></th></tr></thead>
+    <tbody>${sorted.map(r=>`<tr>
+      <td style="white-space:nowrap">${r.date.replace('T',' ')}</td>
+      <td><span class="type-badge" style="background:${TYPE_COLORS[r.type]||'#6b46c1'}22;color:${TYPE_COLORS[r.type]||'#6b46c1'}">${TYPE_LABELS[r.type]||r.type}</span></td>
+      <td style="white-space:nowrap">${DUR_LABELS[r.duration]||r.duration}</td>
+      <td style="white-space:nowrap">${TRIG_LABELS[r.trigger]||'-'}</td>
+      <td style="font-size:.75rem;">${(r.symptoms||[]).map(s=>({tinnitus:'耳鳴',hearing:'難聴',nausea:'悪心',headache:'頭痛',vision:'視覚',sweat:'発汗'}[s]||s)).join(' ')}</td>
+      <td><span class="nrs-badge" style="background:${nrsToColor(r.nrs)}">${r.nrs}</span></td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.note||'-'}</td>
+      <td><button class="btn-del" onclick="deleteRecord(${r.id})">削除</button></td>
+    </tr>`).join('')}</tbody></table>`;
+}
+
+// ============================================================
+//  Export
+// ============================================================
+function dl(content, name, mime) {
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([content],{type:mime}));
+  a.download=name; a.click();
+}
+function dstr() { return new Date().toISOString().slice(0,10); }
+function exportCSV() {
+  const rs=loadRecords(); if(!rs.length){alert('記録がありません');return;}
+  const hdr=['日時','種別','持続','誘因','随伴症状','NRS','メモ','患者ID'];
+  const rows=rs.map(r=>[r.date,r.type,r.duration,r.trigger||'',(r.symptoms||[]).join(';'),r.nrs,`"${(r.note||'').replace(/"/g,'""')}"`,r.patientId||'']);
+  dl('\uFEFF'+[hdr,...rows].map(r=>r.join(',')).join('\r\n'),`めまい記録_${dstr()}.csv`,'text/csv;charset=utf-8');
+}
+function exportJSON() {
+  const rs=loadRecords(); if(!rs.length){alert('記録がありません');return;}
+  dl(JSON.stringify(rs,null,2),`めまい記録_${dstr()}.json`,'application/json');
+}
+
+// ============================================================
+//  Demo data
+// ============================================================
+const DEMO_PATIENT = 'デモ患者 山田花子（45歳・女性）';
+const DEMO_RECORDS = [
+  {date:'2025-10-03T08:15',type:'rotational',duration:'min',trigger:'position',symptoms:['tinnitus','nausea'],nrs:8,note:'起床時寝返りで発症。5分で改善。'},
+  {date:'2025-10-08T19:30',type:'rotational',duration:'min',trigger:'position',symptoms:['nausea'],nrs:7,note:'就寝時に発症。'},
+  {date:'2025-10-15T07:00',type:'rotational',duration:'sec',trigger:'position',symptoms:['tinnitus'],nrs:6,note:''},
+  {date:'2025-10-22T09:00',type:'floating',duration:'hour',trigger:'spontaneous',symptoms:['hearing'],nrs:5,note:'午前中ずっとふわふわ感。'},
+  {date:'2025-11-05T08:30',type:'rotational',duration:'sec',trigger:'position',symptoms:[],nrs:5,note:'前庭リハビリ開始後1週。'},
+  {date:'2025-11-12T07:45',type:'floating',duration:'min',trigger:'spontaneous',symptoms:['tinnitus'],nrs:4,note:''},
+  {date:'2025-11-19T08:00',type:'rotational',duration:'sec',trigger:'position',symptoms:[],nrs:4,note:''},
+  {date:'2025-11-28T07:30',type:'floating',duration:'sec',trigger:'standing',symptoms:[],nrs:3,note:''},
+  {date:'2025-12-10T09:00',type:'floating',duration:'sec',trigger:'spontaneous',symptoms:[],nrs:3,note:'徐々に改善傾向。'},
+  {date:'2025-12-20T08:00',type:'floating',duration:'sec',trigger:'exertion',symptoms:[],nrs:2,note:''},
+  {date:'2026-01-08T08:30',type:'floating',duration:'sec',trigger:'standing',symptoms:[],nrs:2,note:'ほぼ日常生活支障なし。'},
+  {date:'2026-01-22T07:00',type:'floating',duration:'sec',trigger:'unknown',symptoms:[],nrs:1,note:''},
+  {date:'2026-02-05T09:00',type:'floating',duration:'sec',trigger:'exertion',symptoms:[],nrs:1,note:''},
+  {date:'2026-02-19T07:30',type:'floating',duration:'sec',trigger:'unknown',symptoms:[],nrs:1,note:'ほぼ消失。'},
+  {date:'2026-03-05T08:00',type:'floating',duration:'sec',trigger:'unknown',symptoms:[],nrs:1,note:''},
+].map((r,i)=>({...r, id:900000+i, patientId:DEMO_PATIENT}));
+
+function loadDemoData() {
+  const existing = loadRecords().filter(r=>r.patientId!==DEMO_PATIENT);
+  saveRecords([...existing, ...DEMO_RECORDS]);
+  document.getElementById('patientId').value = DEMO_PATIENT;
+  const btn = document.getElementById('demo-btn');
+  btn.textContent='読み込みました！'; btn.style.background='#48bb78';
+  setTimeout(()=>{ btn.textContent='サンプルを読み込む'; btn.style.background='#6b46c1'; }, 2000);
+  renderAll();
+}
+
+function renderAll() {
+  const rs = loadRecords();
+  const activeTab = document.querySelector('.tab-btn.active')?.dataset?.tab || 'timeline';
+  if (activeTab==='timeline')  renderTimeline(rs);
+  if (activeTab==='frequency') renderFrequency(rs);
+  if (activeTab==='report')    renderReport(rs);
+  if (activeTab==='history')   renderTable(rs);
+}
+
+// ============================================================
+//  免責事項
+// ============================================================
+function showDisclaimer() {
+  if (localStorage.getItem('vertigo_disclaimer')) return;
+  const modal = document.getElementById('disclaimer-modal');
+  modal.style.display = 'flex';
+  document.getElementById('disclaimer-check').addEventListener('change', function() {
+    const btn = document.getElementById('disclaimer-ok');
+    btn.disabled = !this.checked; btn.style.opacity = this.checked ? '1' : '0.4';
+  });
+}
+function acceptDisclaimer() {
+  localStorage.setItem('vertigo_disclaimer','1');
+  document.getElementById('disclaimer-modal').style.display = 'none';
+}
+
+// ============================================================
+//  Mobile panel toggle
+// ============================================================
+function showMobilePanel(which) {
+  if (window.innerWidth > 900) return;
+  const left  = document.getElementById('left-panel');
+  const right = document.querySelector('.right-panel');
+  const btnL  = document.getElementById('mnav-left');
+  const btnR  = document.getElementById('mnav-right');
+  if (which === 'left') {
+    left.classList.remove('mob-hidden'); right.classList.add('mob-hidden');
+    btnL.classList.add('active'); btnR.classList.remove('active');
+  } else {
+    left.classList.add('mob-hidden'); right.classList.remove('mob-hidden');
+    btnR.classList.add('active'); btnL.classList.remove('active');
+  }
+}
+window.addEventListener('resize', () => {
+  if (window.innerWidth > 900) {
+    document.getElementById('left-panel').classList.remove('mob-hidden');
+    document.querySelector('.right-panel').classList.remove('mob-hidden');
+  }
+});
+
+// ============================================================
+//  Init
+// ============================================================
+(function init() {
+  const now = new Date(), pad = n=>String(n).padStart(2,'0');
+  document.getElementById('recordDate').value =
+    `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  onNrsChange(document.getElementById('nrsSlider').value);
+  renderAll();
+  showDisclaimer();
+  showMobilePanel('right');
+})();
+
+// Service Worker
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .catch(e => console.warn('[SW]', e));
+  });
+}
+</script>
+</body>
+</html>
